@@ -1,0 +1,43 @@
+---
+title: "Digital사업부 영업현황"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(lubridate)
+df <- readRDS('d:/new_R/flexdashboard/flex_df.rds')
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### 일별계좌개설수 A
+
+```{r}
+
+df %>% group_by(개설일) %>% summarise(n= n()) %>% ungroup() %>% 
+  ggplot(aes(x=ymd(개설일),y=n,fill=n))+
+  geom_col()
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+
+```
+
+### Chart C
+
+```{r}
+
+```
+
