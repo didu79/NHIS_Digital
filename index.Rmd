@@ -1,5 +1,5 @@
 ---
-title: "Digital영업본부 영업현황"
+title: "Digital영업본부 영업현황(변경테스트)"
 output: 
   flexdashboard::flex_dashboard:
     orientation: rows
@@ -11,7 +11,7 @@ library(flexdashboard)
 library(tidyverse)
 library(lubridate)
 library(DT)
-df <- readRDS('d:/new_R/flexdashboard/flex_df.rds')
+df <- readRDS('d:/GitHub/Thomas-the-tank-engine/rds/flex_df.rds')
 ```
 
 
@@ -57,7 +57,8 @@ df %>%
           ,휴면수 = sum(case_when(휴면일 != '00000000' ~ 1, TRUE ~ 0) )
           ,고객수 = n_distinct(고객)
           ,나무수 = sum(case_when(관리점 == '0202' | 관리사원 %in% c('H1060', 'H1059') ~ 1, TRUE ~ 0) )
-          ,QV수   = sum(case_when(관리점 == '0100' & !관리사원 %in% c('H1060', 'H1059')~ 1, TRUE ~ 0) )) %>% 
+          ,QV수   = sum(case_when(관리점 == '0100' & !관리사원 %in% c('H1060', 'H1059')~ 1, TRUE ~ 0) )) %>%
+  select(연령대,개설수,나무수,QV수) %>% 
   datatable(.)
 
 ```
