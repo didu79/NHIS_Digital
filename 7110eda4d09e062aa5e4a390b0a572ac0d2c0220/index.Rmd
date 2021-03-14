@@ -1,87 +1,218 @@
 ---
-title: "Digital영업본부 영업현황(변경테스트) 다시"
-output: 
-  flexdashboard::flex_dashboard:
-    orientation: rows
-    #vertical_layout: fill
+title: "65세이상 시니어 고객에 대한 EDA"
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
-library(flexdashboard)
+knitr::opts_chunk$set(echo = FALSE,echo=F, message=F,warning=F )
+
 library(tidyverse)
 library(lubridate)
+library(ggExtra)
+library(ggridges)
+library(hrbrthemes)
+library(viridis)
 library(knitr)
-library(DT)
-df <- readRDS('d:/new_R/flexdashboard/flex_df.rds')
+library(gridExtra)
+library(forecast)
+
+df <- readRDS('d:/new_R/회사/시니어/ID_trans.rds')
+df1 <- readRDS('d:/new_R/회사/시니어/코드.rds')
+
+df1 <- df1 %>% mutate(com_cd = str_trim(com_cd))
+foo <- inner_join(df,df1, by=c('IEM_SLF_CD' = 'com_cd'))
+foo <- foo %>% relocate(com_cd_nm, .before = IEM_SLF_CD)
+foo <- foo %>% mutate(age_range = case_when(CUS_AGE < 69 ~ '70미만'
+                                            ,CUS_AGE < 75 ~ '75미만'
+                                            ,CUS_AGE < 80 ~ '80미만'
+                                            ,TRUE ~ '80이상'))
+
 ```
 
+<br/><br/><br/><br/>
 
-Row
------------------------------------------------------------------------
+### 탐색의 목적
 
-### 일별 계좌개설 A
+
+타 연령과 같이 살펴보는것이 맞지만, 우선 시니어 그룹내에서 특이점을 찾아보고자 함. 여기서 찾게 되는 특이점은 집단의 특성(모수)이라 여겨지고, 예를 들면 기울기가 크다와 같은 모수는 시니어 집단을 다른 기준으로 추출하여도  동일하게 큰 기울기를 가지는 모수를 가지리라 생각함.
+
+<br/><br/><br/>
+
+### 대상추출 조건
+
+
+월개별계좌, 월고객, 월약정실적,월상품실적,잔고테이블을 모두 계좌번호로 inner join. 활동유형 1번, 개인고객, 65세이상으로 추출(999세는 제외) 이며 **20년1월 ~ 21년2월 사이 수익 발생이나 잔고 있는 계좌**만 추출.
+
+<br/><br/><br/>
+
+### 기타조건 및 분류기준
+
+
+계좌번호별로 월약정테이블과 월상품실적 테이블에서 상품대분류로 유관비용 차감한 수수료 추출. 20년1월 ~ 21년1월의 월평잔을 추출. 조직은 **WM과 디지털로 나눴고, 구분은 202번, 카뱅케뱅은 나무, 그외 100번은 은행연계, 나머지는 영업점으로 분류**. dense_rank()를 이용한 ID부여후 계좌번호와 고객번호는 삭제함. 추출된 계좌에 대한 EDA를 고객번호 기준으로 실시 함.
+
+<br/><br/><br/>
+
+### 고객수와 계좌수
+
+
+계좌번호를 우선하여 수익, 평잔 등을 조인하고 거기에 고객번호를 붙였기 때문에 조직,구분간에는 중복발생 여지는 있음.
+
+
+
+| **구분** | **전체** | **WM**  |**디지털**| **나무** |**은행연계**|
+|:----:|:----:|:----:|:----:|:----:|:------:|
+|**고객수**|**74,075**|**54,506**|**20,733**|**13,467**| **7,549**  |
+|**계좌수**|**81,406**|**59,115**|**22,292**|**14,442**| **7,850**  |
+|**복수계좌**|**7,331** |**4,609** |**1,559** | **975**  |   **301**  |
+
+<br/><br/><br/>
+
+### 결과 요약
+
+
+> + 유형별로 수수료의 중앙값은**(20년 1월~21년 2월 고객별 수수료합)**은 **WM 247,320원, 디지털 9,266원, 나무 2,373원, 은행연계 88,433원**이었음.  
+> + 연령 1%증가에 대한 수수료증가율은, **WM 0.38%, 디지털 3.35%,나무 2.21%, 은행연계 -1.44%**였음. 은행연계는 75세이후는 기울기가 감소 하였음.  
+> + 잔고 1%증가에 대한 수수료증가율은 **WM 0.54%, 디지털 0.65%, 나무 0.85%, 은행연계 0.48%**, 잔고증가에 대한 수수료증가의 효율이 디지털과 나무가 더 높았음.  
+
+
+<br/><br/><br/>
+
+***
+
+### 1. 월별 시니어고객수
+
+
+월별 고객수는 증가하고 있음. **(월별 수수료 발생고객과, 평잔있는 고객의 수)**  
+아마 증가 추세는 다른 연령대도 동일 하리라 예상함. 다만, 다른 연령대와 비교해 타 연령에 비해 시니어의 고객수 증가가 더 높다면 유효한 특이점이 될듯 함.
+
 
 ```{r}
 
-df %>% group_by(개설일) %>% summarise(n= n()) %>% 
-  ggplot(aes(x=ymd(개설일),y=n,fill=n))+
-  geom_col()
+p_wm <- distinct(df %>% filter(조직 == 'WM'),BSE_YM,CUS_NO ) %>% group_by(BSE_YM) %>% summarise(n=n()) 
+
+p_digi <- distinct(df %>% filter(조직 == '디지털'),BSE_YM,CUS_NO ) %>% group_by(BSE_YM) %>% summarise(n=n()) 
+
+p1_wm <- ts(data = p_wm$n,start = '2020',frequency = 12)
+p1_digi <- ts(data = p_digi$n,start = '2020',frequency = 12)
+p2_wm <- holt(p1_wm,h=6)
+p2_digi <- holt(p1_digi,h=6)
+
+p <- distinct(df,BSE_YM,조직,CUS_NO ) %>% group_by(BSE_YM, 조직) %>% summarise(n=n()) %>% 
+  ggplot(aes(x=BSE_YM, y=n, fill=조직))+
+  geom_col(position = 'dodge')+
+  labs(x='년월', y='고객수')+
+  ggtitle(label = '월별 고객수') +
+  theme_light()+
+  theme(legend.position = 'top')
+p1 <- autoplot(p2_wm)+ggtitle(label = 'WM고객수 예상')+theme_light()
+p2 <- autoplot(p2_digi)+ggtitle(label = '디지털고객수 예상')+theme_light()
+
+grid.arrange(p,p1,p2, layout_matrix = cbind(c(1,3), c(1,4)), ncol=2 )
 
 ```
 
 
-### 연령별 성별 B
+<br/><br/><br/>
+
+### 2. 발생 수수료
+
+
+20년1월 ~ 21년 2월까지의 **WM발생수수료는 1,181억**, **디지털 98억**, **나무 23.3억**, **은행연계 74.8억**임. WM의 경우 오프라인 수수료 떄문에 차이가 큰듯. 고객별 **수수료의 중앙값**을 보면 **영업점은 247,320원**, **나무는 2,373원**, **은행연계 88,433원**임. WM과 디지털의 고객을 5세단위 연령대로 나누어 발생수수료의 중앙값을 보면 두 집단 모두 연령이 증가하면 비례하여 수수료의 중앙값도 증가 하였다. WM의 경우 80세이상의 경우 수수료의 중앙값은 연령대에서 최저였음. WM의 경우 PB접촉을 통해 수익 발생하는 구조여서 80세 이상의 경우 수익발생이 낮은 연령대보다 상대적으로 용이 하지 않아서 라고 추정 함.
+
+
+```{r , echo=FALSE}
+
+foo %>% 
+  group_by(조직,CUS_NO,age_range) %>% 
+  summarise(n = sum(FEE)) %>% 
+  ungroup() %>% 
+  group_by(조직,age_range) %>% 
+  summarise(n=median(n))
+
+```
+
+<br/><br/><br/>
+
+### 3. 연령과 수수료에 대한 기울기
+
+
+앞에서 보면 연령이 증가함에 따라 수수료의 중앙값은 증가하는 정(+)의 관계로 보임. WM과 디지털 두집단의 연령과 **총 수수료**에 대한 기울기를 살펴보면 WM은 연령 1세 증가에 대해 **26,083원**의 수수료 증가, 디지털은 **12,149원**의 수수료가 증가하였음.  디지털의 수수료 증가가 덜 하지만 이를 증가율로 보면 **WM은 연령 1%증가에 대해 0.38%**의 수수료 증가, **디지털은 3.35%**의 수수료 증가로 나타나기 떄문에 디지털이 연령의 증가와 수수료의 증가의 관계가 더 강함.  
+나무와 은행연계의 기울기는 **나무는 연령 1% 증가에 대해 수수료 2.21%** 증가, **은행연계는 연령 1% 증가에 수수료 -1.44%** 증가 하였음(은행연계는 75세 이후는 발생수수료가 줄어듬). 아래의 표와 같이 연령이 높을수록 발생 수수료(평균)가 높았음.
+
+
+```{r, echo=F}
+foo %>% filter(구분 %in% c(1,2)) %>% 
+  mutate(구분 = case_when(구분 == 1 ~ '나무'
+                        , TRUE ~ '은행연계')) %>% 
+  group_by(구분,CUS_NO,age_range) %>% 
+  summarise(n = sum(FEE)) %>% 
+  ungroup() %>% 
+  group_by(구분,age_range) %>% 
+  summarise(n=mean(n))
+
+
+
+```
+
+<br/><br/><br/>
+
+### 4. 평잔과 수수료의 기울기
+
+
+|**구분**|**기울기평균**|
+|:--:|:--:|
+|**WM**|**0.541%**|
+|**디지털**|**0.655%**|
+|**나무**|**0.852%**|
+|**은행연계**|**0.483%**|
+20년1월~21년2월 까지의 월별 기울기에 대한 평균은  **(평잔 1%증가에 대한 수수료증가율) WM은 0.54%**, **디지털은 0.65%**로 디지털의 기울기가 높았고, 나무와 은행연계 비교에서 **나무는 0.85%**, **은행연계는 0.48%**로 나무가 더 기울기가 높았음. 유형 4가지에서 나무의 기울기가 가장 높았음.
+
 
 ```{r}
-df %>% group_by( factor(연령),성별) %>% summarise(n = n()) %>% 
-  ggplot(aes(x= `factor(연령)`, y = n, fill = 성별) )+
-  geom_col(position = 'dodge', stat = 'count')
+
+foo1 <- distinct(df,BSE_YM,CUS_NO,월평잔,조직,구분)
+p <- foo %>% 
+  # filter(구분 %in% c(1,2)) %>%
+  distinct(BSE_YM,CUS_NO,조직,FEE) %>% 
+  group_by(BSE_YM,CUS_NO,조직) %>% summarise(FEE = sum(FEE)) %>% 
+  ungroup() %>% inner_join(.,foo1[-5], by = c('CUS_NO'='CUS_NO' , 'BSE_YM' = 'BSE_YM')) %>% 
+  group_by(BSE_YM,조직) %>% summarise(기울기 = map_dbl(., ~lm(log(FEE) ~ log(월평잔))$coefficients[2] )) %>% 
+  distinct(., BSE_YM, 조직, 기울기) %>% rename(구분 = 조직)
+
+foo2 <- distinct(df,BSE_YM,CUS_NO,월평잔,구분)
+p2 <- foo %>% 
+  filter(구분 %in% c(1,2)) %>%
+  distinct(BSE_YM,CUS_NO,구분,FEE) %>% 
+  mutate(구분 = case_when(구분 == 1 ~ '나무'
+                          , TRUE ~ '은행연계')) %>%
+  group_by(BSE_YM,CUS_NO,구분) %>% summarise(FEE = sum(FEE)) %>% 
+  ungroup() %>% inner_join(.,foo2[-3], by = c('CUS_NO'='CUS_NO' , 'BSE_YM' = 'BSE_YM')) %>% 
+  group_by(BSE_YM,구분) %>% summarise(기울기 = map_dbl(., ~lm(log(FEE) ~ log(월평잔))$coefficients[2] )) %>% 
+  distinct(.,BSE_YM,구분,기울기)
+
+p3 <- rbind(p,p2)
+
+p3 %>% mutate(구분 = factor(구분,levels = c('WM','디지털','나무','은행연계'))) %>% 
+  ggplot(aes(x=BSE_YM, y= 기울기,group=구분, color = 구분))+
+  geom_point(size=2)+
+  geom_line(size=1)+
+  ggtitle(label = '유형별 수수료/평잔의 월별기울기')+
+  labs(x='년월',y='기울기')+
+  theme_light()+
+  theme(legend.position = 'top')
+
+
 
 ```
 
+<br/><br/><br/>
 
-Row
-------------------------------------------------------------------------
+***
 
-### 개설수 테이블 C
+### 기타
 
-```{r}
+>
++ 디지털과 나무가 타 그룹과 비교하여 높게 나오는 특이점이 있었기 때문에 타 연령과 비교해서 타 연령과의 비교에서도 우위인지 확인해볼 필요 있음.
+>
 
-df %>% 
-  mutate(연령대 = case_when(연령 < 24 ~ '23'
-                           ,연령 < 26 ~ '25'
-                           ,연령 < 29 ~ '28'
-                           ,TRUE ~ '30' ) ) %>% 
-  group_by(연령대) %>% 
-  summarise(개설수 = n()
-          ,폐쇄수 = sum(case_when(폐쇄일 != '00000000' ~ 1, TRUE ~ 0) )
-          ,휴면수 = sum(case_when(휴면일 != '00000000' ~ 1, TRUE ~ 0) )
-          ,고객수 = n_distinct(고객)
-          ,나무수 = sum(case_when(관리점 == '0202' | 관리사원 %in% c('H1060', 'H1059') ~ 1, TRUE ~ 0) )
-          ,QV수   = sum(case_when(관리점 == '0100' & !관리사원 %in% c('H1060', 'H1059')~ 1, TRUE ~ 0) )) %>%
-  select(연령대,개설수,나무수,QV수) %>% 
-  datatable(.)
-
-```
-
-
-
-### 개설수테이블 D
-
-```{r}
-
-df %>% 
-  mutate(연령대 = case_when(연령 < 24 ~ '23'
-                           ,연령 < 26 ~ '25'
-                           ,연령 < 29 ~ '28'
-                           ,TRUE ~ '30' ) ) %>% 
-  group_by(연령대) %>% 
-  summarise(개설수 = n()
-          ,폐쇄수 = sum(case_when(폐쇄일 != '00000000' ~ 1, TRUE ~ 0) )
-          ,휴면수 = sum(case_when(휴면일 != '00000000' ~ 1, TRUE ~ 0) )
-          ,고객수 = n_distinct(고객)
-          ,나무수 = sum(case_when(관리점 == '0202' | 관리사원 %in% c('H1060', 'H1059') ~ 1, TRUE ~ 0) )
-          ,QV수   = sum(case_when(관리점 == '0100' & !관리사원 %in% c('H1060', 'H1059')~ 1, TRUE ~ 0) )) %>% 
-  kable(.)
-
-```
+<br/><br/><br/><br/><br/>
