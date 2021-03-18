@@ -10,22 +10,118 @@ library(tidyverse)
 library(lubridate)
 library(ggExtra)
 library(ggridges)
+library(ggforce)
 library(hrbrthemes)
 library(viridis)
 library(knitr)
 library(gridExtra)
 library(forecast)
+library(scales)
+library(showtext)
+library(extrafont)
 
-df <- readRDS('d:/new_R/회사/시니어/ID_trans.rds')
-df1 <- readRDS('d:/new_R/회사/시니어/코드.rds')
+font.families()
 
-df1 <- df1 %>% mutate(com_cd = str_trim(com_cd))
-foo <- inner_join(df,df1, by=c('IEM_SLF_CD' = 'com_cd'))
-foo <- foo %>% relocate(com_cd_nm, .before = IEM_SLF_CD)
-foo <- foo %>% mutate(age_range = case_when(CUS_AGE < 69 ~ '70미만'
-                                            ,CUS_AGE < 75 ~ '75미만'
-                                            ,CUS_AGE < 80 ~ '80미만'
-                                            ,TRUE ~ '80이상'))
+# font_add('Nanum Gothic', regular = 'd:/new_R/fonts/Nanum_GOthic/NanumGothic-Regular.ttf')
+font_add('Nanum Gothic Bold', regular = 'd:/new_R/fonts/Nanum_GOthic/NanumGothic-Bold.ttf')
+
+
+showtext_auto()
+
+##주거래
+df4 <- readRDS('d:/new_R/회사/시니어/주거래.rds')
+names(df4) <- c('CUS_NO','구분','조직구분')
+df4 <- as_tibble(df4)
+df4 <- df4 %>% mutate(구분 = case_when(구분 == 1 ~ '나무'
+                                       ,구분 == 2 ~ '은행연계'
+                                       ,TRUE ~ '영업점')
+                        ,조직구분 = case_when(조직구분 == 1 ~ '디지털'
+                                              ,TRUE ~ 'WM'))
+
+
+##코드
+cd <- readRDS('d:/new_R/회사/시니어/코드.rds')
+cd <- cd %>% mutate(com_cd = str_trim(com_cd)
+                      ,com_cd_nm = str_trim(com_cd_nm))
+
+
+##20년1월 ~ 21년3월 까지의 기여수익, 월 평잔
+df <- readRDS('d:/new_R/회사/시니어/전연령.rds')
+names(df)[7] <- '구분'
+names(df)[11] <- '월평잔'
+df <- as_tibble(df[-1])
+df <- df %>% mutate(조직 = if_else(구분 == 3, 'WM', '디지털'))
+df <- df %>% mutate(구분 = case_when(구분 == 1 ~ '나무'
+                                     , 구분 == 2 ~ '은행연계'
+                                     ,TRUE ~ '영업점'))
+df <- df %>% mutate(세대구분 = case_when(CUS_AGE < 40 ~ '2039'
+                                     , CUS_AGE < 65 ~ '4064'
+                                     , TRUE ~ '65이상'))
+df <- df %>% mutate(BSE_YM = ceiling_date(ymd(paste0(BSE_YM,'01')),unit = 'month')-1 )
+
+
+df <- df %>% 
+  left_join(.,df4, by = 'CUS_NO') %>% 
+  mutate(주구분 = case_when(is.na(구분.y) == FALSE ~ `구분.y`
+                         ,TRUE ~ `구분.x`)
+            ,주조직 = case_when(is.na(조직구분) == FALSE ~ 조직구분
+                             ,TRUE ~ 조직))
+##999세없고 20세만
+
+
+
+
+##21년2월말 기준 3개월평잔 20년1월 ~ 21년2월까지의 기여수익합, 약정합(주식,주식외로구분)
+df1 <- readRDS('d:/new_R/회사/시니어/senior_balance.rds')
+names(df1)[c(5,6,7,8,9,10)] <- c('구분','주식기여수익','주식외기여수익','주식약정','주식외약정','평잔')
+df1 <- df1 %>% mutate(조직 = if_else(구분 == 3, 'WM', '디지털'))
+df1 <- df1 %>% mutate(구분 = case_when(구분 == 1 ~ '나무'
+                                     , 구분 == 2 ~ '은행연계'
+                                     ,TRUE ~ '영업점'))
+df1 <- df1 %>% filter(CUS_AGE >= 20) %>% mutate(세대구분 = case_when(CUS_AGE < 40 ~ '2039'
+                                              , CUS_AGE < 65 ~ '4064'
+                                              , TRUE ~ '65이상'))
+
+df1 <- df1 %>% 
+  left_join(.,df4, by = 'CUS_NO') %>% 
+  mutate(주구분 = case_when(is.na(구분.y) == FALSE ~ `구분.y`
+                         ,TRUE ~ `구분.x`)
+            ,주조직 = case_when(is.na(조직구분) == FALSE ~ 조직구분
+                             ,TRUE ~ 조직))
+
+df1 <- df1 %>% filter(CUS_AGE != 999)
+df1 <- df1 %>% filter(CUS_AGE >= 20)
+df1 <- as_tibble(df1)
+##999세없고 20세이상만
+
+
+
+##20년1월 ~ 21년2월까지의 수익률(회사전체)
+##나중에 사용할떄 특이한것들 제외 필요
+df2 <- readRDS('d:/new_R/회사/시니어/수익률.rds')
+names(df2) <- c('CUS_NO','기간', '기초', '기말', '입금고' 
+                , '출금고', '기초적수', '입금고적수', '출금고적수' 
+                , '투자원금', '투자손익', '수익율', '구분', '연령', '주거래계좌')
+
+df2 <- as_tibble(df2)
+df2 <- df2 %>% mutate(조직 = if_else(구분 == 3, 'WM', '디지털'))
+df2 <- df2 %>% mutate(구분 = case_when(구분 == 1 ~ '나무'
+                                       , 구분 == 2 ~ '은행연계'
+                                       ,TRUE ~ '영업점'))
+df2 <- df2 %>% mutate(세대구분 = case_when(연령 < 40 ~ '2039'
+                                       , 연령 < 65 ~ '4064'
+                                       , TRUE ~ '65이상'))
+
+df2 <- df2 %>% 
+  left_join(.,df4, by = 'CUS_NO') %>% 
+  mutate(주구분 = case_when(is.na(구분.y) == FALSE ~ `구분.y`
+                         ,TRUE ~ `구분.x`)
+            ,주조직 = case_when(is.na(조직구분) == FALSE ~ 조직구분
+                             ,TRUE ~ 조직))
+df2 <- df2 %>% filter(연령 != 999)
+df2 <- df2 %>% filter(연령 >= 20)
+
+
 
 ```
 
@@ -45,76 +141,160 @@ foo <- foo %>% mutate(age_range = case_when(CUS_AGE < 69 ~ '70미만'
 
 <br/><br/><br/>
 
-### 기타조건 및 분류기준
+### 기타조건
 
 
-계좌번호별로 월약정테이블과 월상품실적 테이블에서 상품대분류로 유관비용 차감한 수수료 추출. 20년1월 ~ 21년1월의 월평잔을 추출. 조직은 **WM과 디지털로 나눴고, 구분은 202번, 카뱅케뱅은 나무, 그외 100번은 은행연계, 나머지는 영업점으로 분류**. dense_rank()를 이용한 ID부여후 계좌번호와 고객번호는 삭제함. 추출된 계좌에 대한 EDA를 고객번호 기준으로 실시 함.
-
-<br/><br/><br/>
-
-### 고객수와 계좌수
-
-
-계좌번호를 우선하여 수익, 평잔 등을 조인하고 거기에 고객번호를 붙였기 때문에 조직,구분간에는 중복발생 여지는 있음.
-
-
-
-| **구분** | **전체** | **WM**  |**디지털**| **나무** |**은행연계**|
-|:----:|:----:|:----:|:----:|:----:|:------:|
-|**고객수**|**74,075**|**54,506**|**20,733**|**13,467**| **7,549**  |
-|**계좌수**|**81,406**|**59,115**|**22,292**|**14,442**| **7,850**  |
-|**복수계좌**|**7,331** |**4,609** |**1,559** | **975**  |   **301**  |
+계좌번호별로 월약정테이블과 월상품실적 테이블에서 상품대분류로 유관비용 차감한 수수료 추출. 20년1월 ~ 21년1월의 월평잔을 추출. 
 
 <br/><br/><br/>
 
-### 결과 요약
+### 분류기준
 
 
-> + 유형별로 수수료의 중앙값은**(20년 1월~21년 2월 고객별 수수료합)**은 **WM 247,320원, 디지털 9,266원, 나무 2,373원, 은행연계 88,433원**이었음.  
-> + 연령 1%증가에 대한 수수료증가율은, **WM 0.38%, 디지털 3.35%,나무 2.21%, 은행연계 -1.44%**였음. 은행연계는 75세이후는 기울기가 감소 하였음.  
-> + 잔고 1%증가에 대한 수수료증가율은 **WM 0.54%, 디지털 0.65%, 나무 0.85%, 은행연계 0.48%**, 잔고증가에 대한 수수료증가의 효율이 디지털과 나무가 더 높았음.  
+계좌번호를 우선하여 수익, 평잔 등을 조인하고 거기에 고객번호를 붙였고, EDIMM_MM_CUS에서 2월말 기준으로 주거래관리점, 주거래사원번호를 사용함. 세대 구분은 20세~39세를 2039, 40세~64세를 4064, 65세이상으로 분류함.
+
+
+<br/><br/><br/>
+
+<!-- ### 결과 요약 -->
+
+
+<!-- > + 유형별로 수수료의 중앙값은**(20년 1월~21년 2월 고객별 수수료합)**은 **WM 247,320원, 디지털 9,266원, 나무 2,373원, 은행연계 88,433원**이었음.   -->
+<!-- > + 연령 1%증가에 대한 수수료증가율은, **WM 0.38%, 디지털 3.35%,나무 2.21%, 은행연계 -1.44%**였음. 은행연계는 75세이후는 기울기가 감소 하였음.   -->
+<!-- > + 잔고 1%증가에 대한 수수료증가율은 **WM 0.54%, 디지털 0.65%, 나무 0.85%, 은행연계 0.48%**, 잔고증가에 대한 수수료증가의 효율이 디지털과 나무가 더 높았음.   -->
 
 
 <br/><br/><br/>
 
 ***
 
-### 1. 월별 시니어고객수
+### 1. 월별 이용 고객수
 
 
-월별 고객수는 증가하고 있음. **(월별 수수료 발생고객과, 평잔있는 고객의 수)**  
+월별 이용 고객수는 증가하고 있음. **(월별 수수료 발생고객과, 평잔있는 고객의 수)**  
 아마 증가 추세는 다른 연령대도 동일 하리라 예상함. 다만, 다른 연령대와 비교해 타 연령에 비해 시니어의 고객수 증가가 더 높다면 유효한 특이점이 될듯 함.
 
 
 ```{r}
 
-p_wm <- distinct(df %>% filter(조직 == 'WM'),BSE_YM,CUS_NO ) %>% group_by(BSE_YM) %>% summarise(n=n()) 
+##시계열예측
+## 20대 포함은 하지 않음
+p_wm <- df %>% 
+        filter(주조직 == 'WM') %>% 
+        select(3,BSE_YM) %>% 
+        group_by(BSE_YM) %>% dplyr::summarise(n = n() ) %>% ungroup()
 
-p_digi <- distinct(df %>% filter(조직 == '디지털'),BSE_YM,CUS_NO ) %>% group_by(BSE_YM) %>% summarise(n=n()) 
+p_digi <- df %>% 
+          filter(주조직 == '디지털') %>% 
+          select(3,BSE_YM) %>% 
+          group_by(BSE_YM) %>% dplyr::summarise(n = n() ) %>% ungroup()
 
 p1_wm <- ts(data = p_wm$n,start = '2020',frequency = 12)
 p1_digi <- ts(data = p_digi$n,start = '2020',frequency = 12)
 p2_wm <- holt(p1_wm,h=6)
 p2_digi <- holt(p1_digi,h=6)
 
-p <- distinct(df,BSE_YM,조직,CUS_NO ) %>% group_by(BSE_YM, 조직) %>% summarise(n=n()) %>% 
+tibble(월 = c('3월','4월','5월','6월','7월','8월')
+        ,WM = as.numeric(p2_wm$mean)
+        ,디지털 = as.numeric(p2_digi$mean)) 
+
+p_wm$조직 <- c('WM')
+p_digi$조직 <- c('디지털')
+foo <- rbind(p_wm,p_digi)
+
+p <- foo %>% 
   ggplot(aes(x=BSE_YM, y=n, fill=조직))+
   geom_col(position = 'dodge')+
   labs(x='년월', y='고객수')+
   ggtitle(label = '월별 고객수') +
   theme_light()+
   theme(legend.position = 'top')
-p1 <- autoplot(p2_wm)+ggtitle(label = 'WM고객수 예상')+theme_light()
-p2 <- autoplot(p2_digi)+ggtitle(label = '디지털고객수 예상')+theme_light()
+p1 <- autoplot(p2_wm)+ggtitle(label = 'WM고객수 6개월 예상')+theme_light()
+p2 <- autoplot(p2_digi)+ggtitle(label = '디지털고객수 6개월 예상')+theme_light()
 
+# grid.arrange(p, arrangeGrob(p1,p2), ncol =2 )
 grid.arrange(p,p1,p2, layout_matrix = cbind(c(1,3), c(1,4)), ncol=2 )
+
+```
+
+<br/><br/><br/>
+
+### 1.1 세대별 이용 고객수
+
+
+세대별 이용 고객수도 증가하고 있음. **(월별 수수료 발생고객과, 평잔있는 고객의 수)**  
+월별 고객수 변화율의 기울기는 2039 11.2%,, 4064는 7.41%, 65이상은 3.75%를 가짐.
+
+
+```{r}
+
+##시계열예측
+## 세대별
+p_2039 <- df %>% 
+        filter(세대구분 == '2039') %>% 
+        select(3,BSE_YM) %>% 
+        group_by(BSE_YM) %>% dplyr::summarise(n = n() ) %>% ungroup()
+
+p_4064 <- df %>% 
+        filter(세대구분 == '4064') %>% 
+        select(3,BSE_YM) %>% 
+        group_by(BSE_YM) %>% dplyr::summarise(n = n() ) %>% ungroup()
+
+p_65up <- df %>% 
+        filter(세대구분 == '65이상') %>% 
+        select(3,BSE_YM) %>% 
+        group_by(BSE_YM) %>% dplyr::summarise(n = n() ) %>% ungroup()
+
+
+p1_2039 <- ts(data = p_2039$n,start = '2020',frequency = 12)
+p1_4064 <- ts(data = p_4064$n,start = '2020',frequency = 12)
+p1_65up <- ts(data = p_65up$n,start = '2020',frequency = 12)
+
+p2_2039 <- holt(p1_2039,h=6)
+p2_4064 <- holt(p1_4064,h=6)
+p2_65up <- holt(p1_65up,h=6)
+
+# tibble(월 = c('3월','4월','5월','6월','7월','8월')
+#         ,WM = as.numeric(p2_wm$mean)
+#         ,디지털 = as.numeric(p2_digi$mean)) 
+
+p_2039$세대 <- c('2039')
+p_2039 <- p_2039 %>% mutate(no = 1:nrow(p_2039)
+                            ,기울기 = lm(n~no,.)$coefficients[2]
+                            ,`기울기%` = lm(log(n) ~ no,.)$coefficients[2] * 100)
+
+p_4064$세대 <- c('4064')
+p_4064 <- p_4064 %>% mutate(no = 1:nrow(p_4064)
+                            ,기울기 = lm(n~no,.)$coefficients[2]
+                            ,`기울기%` = lm(log(n) ~ no,.)$coefficients[2] * 100)
+
+p_65up$세대 <- c('65이상')
+p_65up <- p_65up %>% mutate(no = 1:nrow(p_2039)
+                            ,기울기 = lm(n~no,.)$coefficients[2]
+                            ,`기울기%` = lm(log(n) ~ no,.)$coefficients[2] * 100)
+
+foo <- rbind(p_2039,p_4064,p_65up)
+
+p <- foo %>% 
+  ggplot(aes(x=BSE_YM, y=n, fill=세대))+
+  geom_col(position = 'dodge')+
+  labs(x='년월', y='고객수')+
+  ggtitle(label = '월별 고객수') +
+  theme_light()+
+  theme(legend.position = 'top')
+p1 <- autoplot(p2_2039)+ggtitle(label = '2039세대 6개월 예상')+theme_light()
+p2 <- autoplot(p2_4064)+ggtitle(label = '4064세대 6개월 예상')+theme_light()
+p3 <- autoplot(p2_65up)+ggtitle(label = '65이상 6개월 예상')+theme_light()
+
+# grid.arrange(p, arrangeGrob(p1,p2), ncol =2 )
+grid.arrange(p,p1,p2,p3, layout_matrix = cbind(c(1,4), c(1,5),c(1,6) ), ncol=3 )
 
 ```
 
 
 <br/><br/><br/>
 
-### 2. 발생 수수료
+### 2. 기여수익
 
 
 20년1월 ~ 21년 2월까지의 **WM발생수수료는 1,181억**, **디지털 98억**, **나무 23.3억**, **은행연계 74.8억**임. WM의 경우 오프라인 수수료 떄문에 차이가 큰듯. 고객별 **수수료의 중앙값**을 보면 **영업점은 247,320원**, **나무는 2,373원**, **은행연계 88,433원**임. WM과 디지털의 고객을 5세단위 연령대로 나누어 발생수수료의 중앙값을 보면 두 집단 모두 연령이 증가하면 비례하여 수수료의 중앙값도 증가 하였다. WM의 경우 80세이상의 경우 수수료의 중앙값은 연령대에서 최저였음. WM의 경우 PB접촉을 통해 수익 발생하는 구조여서 80세 이상의 경우 수익발생이 낮은 연령대보다 상대적으로 용이 하지 않아서 라고 추정 함.
@@ -122,34 +302,181 @@ grid.arrange(p,p1,p2, layout_matrix = cbind(c(1,3), c(1,4)), ncol=2 )
 
 ```{r , echo=FALSE}
 
-foo %>% 
-  group_by(조직,CUS_NO,age_range) %>% 
-  summarise(n = sum(FEE)) %>% 
-  ungroup() %>% 
-  group_by(조직,age_range) %>% 
-  summarise(n=median(n))
+p <- df1[-1] %>% group_by(CUS_NO,세대구분,주조직) %>% dplyr::summarise(기여수익 = sum(주식기여수익+주식외기여수익) ) %>% 
+      filter(기여수익 >0)
+
+p %>% 
+  group_by(세대구분,주조직) %>% 
+  dplyr::summarise(n= round(sum(기여수익)/100000000,1 ) ) %>% spread(key = 세대구분,value=n) %>% kable()
 
 ```
 
 <br/><br/><br/>
 
-### 3. 연령과 수수료에 대한 기울기
+### 기여수익 구조
+
+코멘트 필요
+
+```{r}
+
+##수수료발생구조를 보자
+foo <- df %>% 
+        select(3,7,8,12,16) %>%
+        group_by(CUS_NO,IEM_SLF_CD,주조직,세대구분) %>% 
+        summarise(n=sum(FEE)) %>% 
+        ungroup()
+
+foo <- inner_join(foo,cd, by=c('IEM_SLF_CD' = 'com_cd'))
+foo <- foo %>% relocate(com_cd_nm, .before = IEM_SLF_CD) 
 
 
-앞에서 보면 연령이 증가함에 따라 수수료의 중앙값은 증가하는 정(+)의 관계로 보임. WM과 디지털 두집단의 연령과 **총 수수료**에 대한 기울기를 살펴보면 WM은 연령 1세 증가에 대해 **26,083원**의 수수료 증가, 디지털은 **12,149원**의 수수료가 증가하였음.  디지털의 수수료 증가가 덜 하지만 이를 증가율로 보면 **WM은 연령 1%증가에 대해 0.38%**의 수수료 증가, **디지털은 3.35%**의 수수료 증가로 나타나기 떄문에 디지털이 연령의 증가와 수수료의 증가의 관계가 더 강함.  
-나무와 은행연계의 기울기는 **나무는 연령 1% 증가에 대해 수수료 2.21%** 증가, **은행연계는 연령 1% 증가에 수수료 -1.44%** 증가 하였음(은행연계는 75세 이후는 발생수수료가 줄어듬). 아래의 표와 같이 연령이 높을수록 발생 수수료(평균)가 높았음.
+##wm의 파이차트
+p <- foo %>% filter(주조직 == 'WM') %>% group_by(com_cd_nm) %>%  
+  summarise(n=sum(n)/100000000 ) %>% 
+  arrange(desc(n)) %>% top_n(10) %>% 
+  mutate(비율 = round(n/sum(n),2) ) %>% 
+  arrange(desc(비율)) %>% ungroup() %>% mutate(누적비율 = cumsum(비율))
 
+p_wm <-   p %>%  
+  ggplot(aes(x='',y=비율, fill=com_cd_nm)) +
+  geom_col(position = 'stack', width = 1, color='white') +
+  geom_label(p[1:2,], mapping = aes(x = '',y = 누적비율,label= paste0(com_cd_nm,비율,'%')  ))+
+  scale_fill_brewer(palette = 'Paired')+
+  labs(x='')+
+  ggtitle(label = 'WM 발생수익 상위 10')+
+  guides(fill=guide_legend(title = '유형'))+
+  theme_void()+
+  theme(legend.position = 'bottom',legend.key.size = unit(0.5,'mm')
+        ,text = element_text( family = 'Nanum Gothic'))+
+  coord_polar(theta = 'y',start = 0)
+
+##디지털의 파이차트
+p1 <- foo %>% filter(주조직 == '디지털') %>% group_by(com_cd_nm) %>%  
+  summarise(n=sum(n)/100000000 ) %>% 
+  arrange(desc(n)) %>% top_n(10) %>% 
+  mutate(비율 = round(n/sum(n),2) ) %>% 
+  arrange(desc(비율)) %>% ungroup() %>% mutate(누적비율 = cumsum(비율))
+
+p_digi <-   p1 %>%  
+  ggplot(aes(x='',y=비율, fill=com_cd_nm)) +
+  geom_col(position = 'stack', width = 1, color='white') +
+  geom_label(p1[1:2,], mapping = aes(x = '',y = 누적비율,label= paste0(com_cd_nm,비율,'%')  ))+
+  scale_fill_brewer(palette = 'Paired')+
+  labs(x='')+
+  ggtitle(label = '디지털 발생수익 상위 10')+
+  guides(fill=guide_legend(title = '유형'))+
+  theme_void()+
+  theme(legend.position = 'bottom',legend.key.size = unit(0.5,'mm')
+        ,text = element_text( family = 'Nanum Gothic'))+
+  coord_polar(theta = 'y',start = 0)
+
+##2039의 파이차트
+p1_2039 <- foo %>% filter(세대구분 == '2039') %>% group_by(com_cd_nm) %>%  
+  summarise(n=sum(n)/100000000 ) %>% 
+  arrange(desc(n)) %>% top_n(10) %>% 
+  mutate(비율 = round(n/sum(n),2) ) %>% 
+  arrange(desc(비율)) %>% ungroup() %>% mutate(누적비율 = cumsum(비율))
+
+p_2039 <-   p1_2039 %>%  
+  ggplot(aes(x='',y=비율, fill=com_cd_nm)) +
+  geom_col(position = 'stack', width = 1, color='white') +
+  geom_label(p1_2039[1:2,], mapping = aes(x = '',y = 누적비율,label= paste0(com_cd_nm,비율,'%')  ))+
+  scale_fill_brewer(palette = 'Paired')+
+  labs(x='')+
+  ggtitle(label = '2039 발생수익 상위 10')+
+  guides(fill=guide_legend(title = '유형'))+
+  theme_void()+
+  theme(legend.position = 'bottom',legend.key.size = unit(0.5,'mm')
+        ,text = element_text( family = 'Nanum Gothic'))+
+  coord_polar(theta = 'y',start = 0)
+
+##4064의 파이차트
+p1_4064 <- foo %>% filter(세대구분 == '4064') %>% group_by(com_cd_nm) %>%  
+  summarise(n=sum(n)/100000000 ) %>% 
+  arrange(desc(n)) %>% top_n(10) %>% 
+  mutate(비율 = round(n/sum(n),2) ) %>% 
+  arrange(desc(비율)) %>% ungroup() %>% mutate(누적비율 = cumsum(비율))
+
+p_4064 <-   p1_4064 %>%  
+  ggplot(aes(x='',y=비율, fill=com_cd_nm)) +
+  geom_col(position = 'stack', width = 1, color='white') +
+  geom_label(p1_4064[1:2,], mapping = aes(x = '',y = 누적비율,label= paste0(com_cd_nm,비율,'%')  ))+
+  scale_fill_brewer(palette = 'Paired')+
+  labs(x='')+
+  ggtitle(label = '4064 발생수익 상위 10')+
+  guides(fill=guide_legend(title = '유형'))+
+  theme_void()+
+  theme(legend.position = 'bottom',legend.key.size = unit(0.5,'mm')
+        ,text = element_text( family = 'Nanum Gothic'))+
+  coord_polar(theta = 'y',start = 0)
+
+##4064의 파이차트
+p1_65up <- foo %>% filter(세대구분 == '65이상') %>% group_by(com_cd_nm) %>%  
+  summarise(n=sum(n)/100000000 ) %>% 
+  arrange(desc(n)) %>% top_n(10) %>% 
+  mutate(비율 = round(n/sum(n),2) ) %>% 
+  arrange(desc(비율)) %>% ungroup() %>% mutate(누적비율 = cumsum(비율))
+
+p_65up <-   p1_65up %>%  
+  ggplot(aes(x='',y=비율, fill=com_cd_nm)) +
+  geom_col(position = 'stack', width = 1, color='white') +
+  geom_label(p1_65up[1:2,], mapping = aes(x = '',y = 누적비율,label= paste0(com_cd_nm,비율,'%')  ))+
+  scale_fill_brewer(palette = 'Paired')+
+  labs(x='')+
+  ggtitle(label = '65이상 발생수익 상위 10')+
+  guides(fill=guide_legend(title = '유형'))+
+  theme_void()+
+  theme(legend.position = 'bottom',legend.key.size = unit(0.5,'mm')
+        ,text = element_text( family = 'Nanum Gothic'))+
+  coord_polar(theta = 'y',start = 0)
+
+grid.arrange(p_wm,p_digi,p_2039,p_4064,p_65up, ncol = 3)
+
+
+
+```
+
+<br/><br/><br/>
+
+### 3. 연령과 기여수익의 기울기
+
+ 개인별 기여수익의 합에 대해 연령과의 기울기를 보면, 연령 1세 증가에 대한 기울기는 아래의 표와 같음.
+
+| WM기울기| 디지털기울기| 2039기울기| 4064기울기| 65이상기울기|
+|--------:|------------:|----------:|----------:|------------:|
+| 40,338원|      13,173원|      15,694원|   48,071원|      32,512원|
+
+<br/><br/>
+
+하지만 고객별 기여수익의 중앙값을 보면 65이상 > 4064 > 2039의 순으로 기여수익이 높음. 기여수익 중앙값 1692의 2039의 고객도 물론 중요하지만, 기여수익 중앙값 88,597원의 시니어 고객도 중요하게 생각해야 함.  
+
+|세대구분 | 수익중앙|
+|:-------:|:-------:|
+|2039     |   1692.0|
+|4064     |  14226.0|
+|65이상   |  88597.5|
+
+>
+20년 1월 ~ 21년 2월 까지 기여수익의 합. 기여수익 0원 초과 고객만 입력
+>
 
 ```{r, echo=F}
-foo %>% filter(구분 %in% c(1,2)) %>% 
-  mutate(구분 = case_when(구분 == 1 ~ '나무'
-                        , TRUE ~ '은행연계')) %>% 
-  group_by(구분,CUS_NO,age_range) %>% 
-  summarise(n = sum(FEE)) %>% 
-  ungroup() %>% 
-  group_by(구분,age_range) %>% 
-  summarise(n=mean(n))
 
+foo <- df1 %>% 
+  group_by(CUS_NO, 주조직,세대구분,CUS_AGE) %>% 
+  summarise(기여수익 = sum(주식기여수익+주식외기여수익)) %>%
+  filter(기여수익 > 0)
+
+  foo  %>% 
+  group_by(CUS_AGE,세대구분) %>% 
+  summarise(중앙=median(기여수익) ) %>% filter(CUS_AGE <= 99) %>% 
+  ggplot(aes(x=CUS_AGE, y=중앙, fill = 세대구분))+
+  geom_col()+
+  labs(x='연령', y='')+
+  ggtitle(label = '고객별 기여수익 중앙값')+
+  scale_y_continuous(labels = comma)+
+  theme_light()+
+  theme(legend.position = 'top')
 
 
 ```
@@ -158,61 +485,282 @@ foo %>% filter(구분 %in% c(1,2)) %>%
 
 ### 4. 평잔과 수수료의 기울기
 
-
-|**구분**|**기울기평균**|
-|:--:|:--:|
-|**WM**|**0.541%**|
-|**디지털**|**0.655%**|
-|**나무**|**0.852%**|
-|**은행연계**|**0.483%**|
-20년1월~21년2월 까지의 월별 기울기에 대한 평균은  **(평잔 1%증가에 대한 수수료증가율) WM은 0.54%**, **디지털은 0.65%**로 디지털의 기울기가 높았고, 나무와 은행연계 비교에서 **나무는 0.85%**, **은행연계는 0.48%**로 나무가 더 기울기가 높았음. 유형 4가지에서 나무의 기울기가 가장 높았음.
-
+평잔과 기여수익에 대한 세대별 기울기는 다음과 같음. 평잔 1%증가에 WM의 기여수익은 0.48%, 디지털 0.44%, 2039는 0.35%, 4064는 0.48%, 65이상은 0.47% 임. 
+<br/><br/>
+>
+평잔은 20년12월 ~ 21년 2월의 3개월 평잔. 기울기 측정을 위해 평잔 기여수익 0원 초과의 고객만 입력.
+>
 
 ```{r}
 
-foo1 <- distinct(df,BSE_YM,CUS_NO,월평잔,조직,구분)
-p <- foo %>% 
-  # filter(구분 %in% c(1,2)) %>%
-  distinct(BSE_YM,CUS_NO,조직,FEE) %>% 
-  group_by(BSE_YM,CUS_NO,조직) %>% summarise(FEE = sum(FEE)) %>% 
-  ungroup() %>% inner_join(.,foo1[-5], by = c('CUS_NO'='CUS_NO' , 'BSE_YM' = 'BSE_YM')) %>% 
-  group_by(BSE_YM,조직) %>% summarise(기울기 = map_dbl(., ~lm(log(FEE) ~ log(월평잔))$coefficients[2] )) %>% 
-  distinct(., BSE_YM, 조직, 기울기) %>% rename(구분 = 조직)
+#### 평잔 분포
+foo <- df1 %>% 
+  group_by(CUS_NO, 주조직,세대구분) %>% 
+  summarise(평잔 = sum(평잔)
+              ,기여수익 = sum(주식기여수익+주식외기여수익)) %>%
+  filter(기여수익 > 0 & 평잔 > 0)
 
-foo2 <- distinct(df,BSE_YM,CUS_NO,월평잔,구분)
-p2 <- foo %>% 
-  filter(구분 %in% c(1,2)) %>%
-  distinct(BSE_YM,CUS_NO,구분,FEE) %>% 
-  mutate(구분 = case_when(구분 == 1 ~ '나무'
-                          , TRUE ~ '은행연계')) %>%
-  group_by(BSE_YM,CUS_NO,구분) %>% summarise(FEE = sum(FEE)) %>% 
-  ungroup() %>% inner_join(.,foo2[-3], by = c('CUS_NO'='CUS_NO' , 'BSE_YM' = 'BSE_YM')) %>% 
-  group_by(BSE_YM,구분) %>% summarise(기울기 = map_dbl(., ~lm(log(FEE) ~ log(월평잔))$coefficients[2] )) %>% 
-  distinct(.,BSE_YM,구분,기울기)
-
-p3 <- rbind(p,p2)
-
-p3 %>% mutate(구분 = factor(구분,levels = c('WM','디지털','나무','은행연계'))) %>% 
-  ggplot(aes(x=BSE_YM, y= 기울기,group=구분, color = 구분))+
-  geom_point(size=2)+
-  geom_line(size=1)+
-  ggtitle(label = '유형별 수수료/평잔의 월별기울기')+
-  labs(x='년월',y='기울기')+
+foo %>% 
+  ggplot(aes(x=log(평잔), y=세대구분, fill = 세대구분))+
+  geom_density_ridges(alpha=0.5)+
+  labs(x='평잔(로그변환)')+
+  scale_x_continuous(limits = c(8,23))+
+  ggtitle(label = '세대별 평잔 분포')+
   theme_light()+
-  theme(legend.position = 'top')
-
-
+  theme(legend.position = '',text = element_text( family = 'Nanum Gothic', size = 14))
 
 ```
 
 <br/><br/><br/>
 
+
+### 5.수익률
+
+수익률은 0을 기준으로 약간은 오른쪽으로 더 치우쳐 져 있으나, 어느세대가 더 우위라고 말하기 어려움(차트 왼쪽). 
+<br/>
+연령별 평균 수익률을 보면 WM의경우는 65세 이상 구간에서도 수익률 평균이 완만하게  하락하는 모양이지만, 디지털의 경우 65세 부터 급격히 떨어짐. WM의 경우 PB에 의한 투자가 이루어 지나 디지털의 경우 스스로 하는 투자 이기 때무이라고 추측함(차트 오른쪽).
+
+```{r}
+
+foo <- df2 %>% select(CUS_NO, 투자손익,수익율,주구분,주조직,연령,세대구분) 
+##1사분위, 3사분위
+foo <- foo %>% filter(수익율 >= quantile(foo$수익율, 0.25) & 수익율 < quantile(foo$수익율, 0.75))
+
+##수익률분포 세대별
+p <- foo %>% ggplot(aes(x=수익율,y=세대구분,fill=주조직))+
+  geom_density_ridges(alpha=0.5)+
+  labs(x='수익률',y='세대구분')+
+  ggtitle(label = '세대별 구간 수익률 분포(20년1월 ~ 21년2월)')+
+  theme_light()+
+  guides(fill=guide_legend(title = '조직'))+
+  theme(text = element_text(size = 14, family = 'Nanum Gothic'))+
+  facet_zoom(xlim = c(-0.5,1),zoom.size = 1)
+
+##수익률분포 연령별
+p1 <- foo %>% group_by(연령,주조직,세대구분) %>% summarise(평균 = mean(수익율)) %>% 
+  ggplot(aes(x=연령, y=평균,fill=주조직))+
+  geom_col(position = 'dodge')+
+  scale_x_continuous(limits = c(18,100))+
+  scale_y_continuous(limits = c(-0.08, 2.5))+
+  ggtitle(label = '연령별 수익률 평균')+
+  annotate(geom = 'rect',xmin = 20,xmax = 39,ymin = 0,ymax = 2.5, alpha = 0.2)+
+  annotate(geom = 'text',x = 30, y=2, label = '2039', size = 5)+
+  annotate(geom = 'rect',xmin = 40,xmax = 64,ymin = 0,ymax = 2.5, alpha = 0.2)+
+  annotate(geom = 'text',x = 53, y=2, label = '4064', size = 5)+
+  annotate(geom = 'rect',xmin = 65,xmax = 100,ymin = 0,ymax = 2.5, alpha = 0.2)+
+  annotate(geom = 'text',x = 80, y=2, label = '65이상', size = 5)+
+  theme_light()+
+  theme(text = element_text(size = 14, family = 'Nanum Gothic'))
+
+grid.arrange(p,p1, nrow = 2)
+
+```
+
+### 5.1약정 과 수익률의 기울기
+약정 1% 증가에 대해 각 세대별 수익률의 %포인트 변화는 2039 0.57%pt, 4064 0.51%pt, 65이상 0.40%pt 임. 연령 상위 세대가 약정 대비 수익률이 상대적으로 떨어지는 것은 스스토 투자하고, 작년 시장 상황이 좋을때 적극적으로 주식투자가 안 이루어졌거나 등의 이유라고 추측함. 이부분에 대해서는 추가로 볼 필요 있음.  
+
+<br/>
+차트에서 65이상 보다 4064가 많이 눈에 띄는데, 60세~64세는 예비 시니어로 볼수 있어 대상에 대해 추가로 볼 필요있음.
+
+```{r}
+foo <- df2 %>% select(CUS_NO,수익율) %>% left_join(df1)
+foo <- df1 %>% 
+      select(2,3,9,12,16) %>% 
+      inner_join(.,df2[c(1,12)], by = 'CUS_NO') %>% 
+      filter(주식외약정>0 & 수익율 >= quantile(.$수익율, 0.25) & 수익율 < quantile(.$수익율, 0.75))
+
+foo %>% 
+  mutate(약정 = log(주식외약정)) %>% 
+  slice_sample(prop = 0.1) %>% 
+  ggplot(aes(x=약정,y=수익율, color = 세대구분))+
+  geom_jitter(size=1)+
+  theme_light()
+
+
+```
+
 ***
 
-### 기타
+<!-- ### 기타 -->
 
->
-+ 디지털과 나무가 타 그룹과 비교하여 높게 나오는 특이점이 있었기 때문에 타 연령과 비교해서 타 연령과의 비교에서도 우위인지 확인해볼 필요 있음.
->
+<!-- > -->
+<!-- + 디지털과 나무가 타 그룹과 비교하여 높게 나오는 특이점이 있었기 때문에 타 연령과 비교해서 타 연령과의 비교에서도 우위인지 확인해볼 필요 있음. -->
+<!-- > -->
 
-<br/><br/><br/><br/><br/>
+<!-- <br/><br/><br/> -->
+
+<!-- ###세대별 연령분포 -->
+
+<!-- ```{r} -->
+
+<!-- ##연령분포 (조직구분) -->
+<!-- distinct(df1,CUS_NO,CUS_AGE,세대구분,조직) %>% group_by(CUS_AGE,세대구분,조직) %>% summarise(n=n()) %>%  -->
+<!--   ggplot(aes(x=CUS_AGE, y=n,group =조직, fill = 조직))+ -->
+<!--   geom_col(position = 'dodge')+ -->
+<!--   labs(x='고객연령', y='고객수')+ -->
+<!--   scale_x_continuous(breaks = c(20,30,40,50,65,70,80),limits = c(18,100))+ -->
+<!--   scale_y_continuous(labels = comma,)+ -->
+<!--   ggtitle(label = '조직별 연령 분포')+ -->
+<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
+<!--   theme_light(base_family = 'Nanum Gothic')+ -->
+<!--   theme(legend.position = 'top' -->
+<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
+<!--         ) -->
+
+<!-- ##연령분포 ((세대구분)) -->
+<!-- distinct(df1,CUS_NO,CUS_AGE,세대구분) %>% group_by(CUS_AGE,세대구분) %>% summarise(n=n()) %>%  -->
+<!--   ggplot(aes(x=CUS_AGE, y=n,group =조직, fill = 조직))+ -->
+<!--   geom_col(position = 'dodge')+ -->
+<!--   labs(x='고객연령', y='고객수')+ -->
+<!--   scale_x_continuous(breaks = c(20,30,40,50,65,70,80),limits = c(18,100))+ -->
+<!--   scale_y_continuous(labels = comma,)+ -->
+<!--   ggtitle(label = '세대별 연령 분포')+ -->
+<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
+<!--   theme_light(base_family = 'Nanum Gothic')+ -->
+<!--   theme(legend.position = 'top' -->
+<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
+<!--         ) -->
+
+
+<!-- ``` -->
+
+<!-- ### 조직별 평잔 분포 -->
+
+<!-- ```{r} -->
+
+<!-- ##잔고분포(조직구분) -->
+<!-- ##0원이상 잔고보유만 -->
+<!-- set.seed(123) -->
+<!-- distinct(df1, CUS_NO, 조직,세대구분,평잔) %>%  -->
+<!--   group_by(CUS_NO, 조직,세대구분) %>%  -->
+<!--   summarise(평잔 = sum(평잔)) %>%  -->
+<!--   filter(평잔 > 0) %>%  -->
+<!--   mutate(평잔 = log1p(평잔) ) %>%  -->
+<!--   ungroup() %>%  -->
+<!--   slice_sample(prop = 0.3) %>% -->
+<!--   ggplot(aes(x=평잔, y= 세대구분, fill=조직))+ -->
+<!--   geom_density_ridges(alpha=0.5)+ -->
+
+<!--   labs(x='평잔', y='')+ -->
+<!--   ggtitle(label = '조직별 평잔 분포(20년12월 ~ 21년 3월의 3개월 평잔)')+ -->
+<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
+<!--   theme_light(base_family = 'Nanum Gothic')+ -->
+<!--   theme(legend.position = 'top' -->
+<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
+<!--   ) -->
+
+<!-- ``` -->
+
+<!-- ### 조직별 기여수익 분포 -->
+
+<!--   |조직|   세대구분| 고객수| 기여수익|조직|   세대구분| 고객수| 기여수익| -->
+<!--   |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:| -->
+<!-- |WM   |  2039   |  140779  |   594 | 디지털 | 2039   |  548673 |    548| -->
+<!-- |WM   |  4064   |  343927  |  4730 | 디지털 | 4064   |  464989  |  1721| -->
+<!-- |WM   |  65이상 |   71491  |  1310 | 디지털 | 65이상 | 20379   |  105| -->
+
+
+
+
+<!-- ```{r} -->
+
+<!-- ##기여수익분포(조직구분) -->
+<!-- ##0원이상 기여수익만 -->
+<!-- distinct(df1, CUS_NO, 조직,세대구분,주식기여수익, 주식외기여수익) %>%  -->
+<!--   group_by(CUS_NO, 조직,세대구분) %>%  -->
+<!--   summarise(기여수익 = sum(주식기여수익+주식외기여수익) ) %>%  -->
+<!--   filter(기여수익 > 0) %>%  -->
+<!--   mutate(기여수익 = log1p(기여수익) ) %>%  -->
+<!--   ungroup() %>%  -->
+<!--   slice_sample(prop = 0.3) %>% -->
+<!--   ggplot(aes(x=기여수익, y= 세대구분, fill=조직))+ -->
+<!--   geom_density_ridges(alpha=0.5)+ -->
+
+<!--   labs(x='기여수익', y='')+ -->
+<!--   ggtitle(label = '조직별 기여수익 분포(20년01월 ~ 21년 2월의 수익)')+ -->
+<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
+<!--   theme_light(base_family = 'Nanum Gothic')+ -->
+<!--   theme(legend.position = 'top' -->
+<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
+<!--   ) -->
+
+<!-- ``` -->
+
+
+<!-- ### 세대별 수익률 -->
+
+
+<!-- ```{r} -->
+
+<!-- ##수익률분포 -->
+<!-- ## 주거래계좌 추가 -->
+<!-- foo <- df2 %>% select(CUS_NO, 투자손익,수익율,주구분,주조직,연령,세대구분)  -->
+<!-- ##1사분위, 3사분위 -->
+<!-- foo <- foo %>% filter(수익율 >= quantile(foo$수익율, 0.25) & 수익율 < quantile(foo$수익율, 0.75)) -->
+
+<!-- ##수익률분포 -->
+<!-- foo %>% ggplot(aes(x=수익율,y=세대구분,fill=주조직))+ -->
+<!--   geom_density_ridges(alpha=0.5)+ -->
+<!--   labs(x='수익률',y='세대구분')+ -->
+<!--   ggtitle(label = '세대별 구간 수익률(20년1월 ~ 21년2월)')+ -->
+<!--   theme_light()+ -->
+<!--   theme(text = element_text(size = 14, family = 'Nanum Gothic'))+ -->
+<!--   facet_zoom(xlim = c(-1,1),zoom.size = 1) -->
+
+<!-- ``` -->
+
+<!-- ### 수익률 분포 연령별 -->
+
+<!-- ```{r} -->
+
+<!-- ##수익률분포 -->
+<!-- ## 주거래계좌 추가 -->
+<!-- foo <- df2 %>% select(CUS_NO, 투자손익,수익율,주구분,주조직,연령,세대구분)  -->
+<!-- ##1사분위, 3사분위 -->
+<!-- foo <- foo %>% filter(수익율 >= quantile(foo$수익율, 0.25) & 수익율 < quantile(foo$수익율, 0.75)) -->
+
+<!-- ##수익률분포 연령별 -->
+<!-- foo %>% group_by(연령,주조직,세대구분) %>% summarise(평균 = mean(수익율)) %>%  -->
+<!--   ggplot(aes(x=연령, y=평균,fill=주조직))+ -->
+<!--   geom_col(position = 'dodge')+ -->
+<!--   scale_x_continuous(limits = c(18,100))+ -->
+<!--   scale_y_continuous(limits = c(-0.08, 2.5))+ -->
+<!--   ggtitle(label = '연령별 수익률 평균')+ -->
+<!--   annotate(geom = 'rect',xmin = 20,xmax = 39,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
+<!--   annotate(geom = 'text',x = 30, y=2, label = '2039', size = 3)+ -->
+<!--   annotate(geom = 'rect',xmin = 40,xmax = 64,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
+<!--   annotate(geom = 'text',x = 53, y=2, label = '4064', size = 3)+ -->
+<!--   annotate(geom = 'rect',xmin = 65,xmax = 100,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
+<!--   annotate(geom = 'text',x = 80, y=2, label = '65이상', size = 3)+ -->
+<!--   theme_light()+ -->
+<!--   theme(text = element_text(size = 14, family = 'Nanum Gothic')) -->
+
+<!-- ``` -->
+
+
+<!-- ### 세대별 약정 분포 -->
+
+<!-- ```{r} -->
+
+<!-- ##세대별 약정, 수익분포 -->
+<!-- foo <- df1 %>%  -->
+<!--   group_by(CUS_NO,주조직,세대구분) %>%  -->
+<!--   summarise(평잔 = sum(평잔) -->
+<!--             , 수익 = sum(주식기여수익+주식외기여수익) -->
+<!--             , 주식수익 = sum(주식기여수익) -->
+<!--             , 주식외수익 = sum(주식외기여수익)) %>% filter(수익 > 0) %>% ungroup() -->
+
+<!-- ## 수익 구성 -->
+<!-- ## 디지털은 발생수익이 낮은데, 도움이 없어서 그런거 아닌가 -->
+<!-- foo[-4] %>%  -->
+<!--   # slice_sample(.,prop=0.3) %>%  -->
+<!--   gather(key = key, value = value,-CUS_NO,-주조직,-세대구분) %>%  -->
+<!--   ggplot(aes(x=세대구분, y=value/100000000, fill=key))+ -->
+<!--   geom_col()+ -->
+<!--   labs(y='발생수익(억)')+ -->
+<!--   ggtitle(label = '세대별 발생수익 (20년1월 ~ 21년2월 합산)') + -->
+<!--   theme_light()+ -->
+<!--   theme(legend.position ='')+ -->
+<!--   facet_wrap(~주조직) -->
+
+<!-- ``` -->
