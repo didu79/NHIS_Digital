@@ -19,6 +19,8 @@ library(forecast)
 library(scales)
 library(showtext)
 library(extrafont)
+library(survival)
+library(survminer)
 
 font.families()
 
@@ -121,6 +123,17 @@ df2 <- df2 %>%
 df2 <- df2 %>% filter(연령 != 999)
 df2 <- df2 %>% filter(연령 >= 20)
 
+
+##생존분석용
+surv_df <- readRDS("d:/new_R/회사/생존분석/20년개설계좌_영업점포함.rds")
+
+##생존기준 생 0 사 1
+# 전기간 10만원이하 1, 입고,입금 없으면 1, 폐쇄 1, 휴면 1
+# 경과일 계산 계좌개설 ~ 사망일, 생존 시 계좌개설일 ~ 21년1월1일
+# 사망일 특정 이벤트(잔고 10만원 최후 월, 또는 최후 약정월월 말일)
+
+surv_df <- as_tibble(surv_df)
+names(surv_df) <- c('계좌번호', '연령', '성별','개설일', '관리점' ,'경과일' ,'사활')
 
 
 ```
@@ -574,6 +587,8 @@ grid.arrange(p,p1,p2, layout_matrix = cbind( c(1,3), c(1,4)) ,nrow = 2)
 
 ```
 
+<br/>
+
 ### 5.1약정 과 수익률의 기울기
 약정 1% 증가에 대해 각 세대별 수익률의 %포인트 변화는 2039 0.57%pt, 4064 0.51%pt, 65이상 0.40%pt 임. 연령 상위 세대가 약정 대비 수익률이 상대적으로 떨어지는 것은 스스토 투자하고, 작년 시장 상황이 좋을때 적극적으로 주식투자가 안 이루어졌거나 등의 이유라고 추측함. 이부분에 대해서는 추가로 볼 필요 있음.  
 
@@ -598,188 +613,77 @@ foo %>%
 
 ```
 
+<br/><br/><br/>
+
+### 6. 계좌생존율
+
+2018년 1월 1일 ~ 2020년 12월 31까지 개설된 계좌들의 생존율을 보면, 1일차부터 대략 50%의 생존율을 보이고, **1년 시점에는 2039는 43%, 4064는 51.5%, 65이상은 57.4%임**. 시니어 집단의 생존율이 좀더 높긴 하나 대략 600일부터 하락 기울기가 커짐.
+
+| **경과일**|      **2039**|      **4064**|    **65이상**|
+|:-----:|:--------:|:--------:|:--------:|
+|    100일| 45.0%| 53.1%| 59.3%|
+|    180일| 44.9%| 53.0%| 59.2%|
+|    365일| 43.2%| 51.5%| 57.4%|
+|    730일| 36.3%| 46.1%| 50.0%|
+
+
+>생존정의 : 생 0, 사 1
+>전체기간 10만원 이하 1, 입금,입고 전무 1, 폐쇄 1, 휴면 1
+>전 기간 10만원 이하 시 경과일 1일 처리, 그외의 경우는 사망 조건 발생 시까지 생존으로 분류 하여 경과일 측정.
+>1일처리 외의 사망 발생 시, 약정, 잔고 10만원 이상 발생일, 폐쇄일 중 가장 나중의 발생일을 사망일로 정하여 개설일 ~ >사망일로 경과일 측정.
+
+
+<br/>
+
+```{r}
+
+foo <- surv_df %>% filter(연령 >= 20 & 연령 <= 100) %>% 
+  mutate(사활 = case_when(사활 == 1 ~ TRUE #true = death
+                          ,사활 == 0 ~ FALSE)
+           ,세대구분 = case_when(연령 < 40 ~ '2039'
+                               ,연령 < 64 ~ '4064'
+                               , TRUE ~ '65이상')
+           ,조직 = case_when(관리점 %in% c('나무','QV') ~ '디지털'
+                              ,TRUE ~ '영업점'))
+
+
+
+fit <- survfit(formula = Surv(경과일,사활)~세대구분, data=foo)
+
+p.fit <- ggsurvplot(fit
+                    ,ggtheme = theme_light()
+                    , legend.labs = c('2039','4064','65이상')
+                    ,xlab = '경과일', ylab = '생존율', title = '세대별 계좌 생존율') +
+  theme_survminer(base_family = 'Nanum Gothic'
+                  ,font.main = 20
+                  ,font.legend = 14,font.x = 14,font.y = 14)
+
+p.fit$plot +
+annotate(geom = 'rect', xmin = 0 ##180일
+         , xmax = 180, ymin = 0, ymax = 1 , alpha=0.1) +
+annotate(geom = 'text',x = 90, y = 0.80,label = '180일 생존율', size = 6 ) +
+annotate(geom = 'text',x = 90, y = 0.75,label = '2039 = 44%', size = 5  ) +
+annotate(geom = 'text',x = 90, y = 0.70,label = '4064 = 53%', size = 5 ) +
+annotate(geom = 'text',x = 90, y = 0.65,label = '65이상 = 59%', size = 5 ) +
+
+annotate(geom = 'rect', xmin = 180 ##365일
+         , xmax = 365, ymin = 0, ymax = 1 , alpha=0.2) +
+annotate(geom = 'text',x = 272, y = 0.80,label = '365일 생존율', size = 6  ) +
+annotate(geom = 'text',x = 272, y = 0.75,label = '2039  = 43%', size = 5 ) +
+annotate(geom = 'text',x = 272, y = 0.70,label = '4064  = 51%', size = 5 ) +
+annotate(geom = 'text',x = 272, y = 0.65,label = '65이상  = 57%', size = 5 ) +
+  
+annotate(geom = 'rect', xmin = 365 ## 730일
+         , xmax = 730, ymin = 0, ymax = 1 , alpha=0.3) +
+annotate(geom = 'text',x = 545, y = 0.80,label = '730일 생존율', size = 6  ) +
+annotate(geom = 'text',x = 545, y = 0.75,label = '2039  = 36%', size = 5 ) +
+annotate(geom = 'text',x = 545, y = 0.70,label = '4064  = 46%', size = 5 ) +
+annotate(geom = 'text',x = 545, y = 0.65,label = '65이상  = 50%', size = 5 )
+
+```
+
+
 ***
 <br/><br/><br/><br/>
-<!-- ### 기타 -->
-
-<!-- > -->
-<!-- + 디지털과 나무가 타 그룹과 비교하여 높게 나오는 특이점이 있었기 때문에 타 연령과 비교해서 타 연령과의 비교에서도 우위인지 확인해볼 필요 있음. -->
-<!-- > -->
-
-<!-- <br/><br/><br/> -->
-
-<!-- ###세대별 연령분포 -->
-
-<!-- ```{r} -->
-
-<!-- ##연령분포 (조직구분) -->
-<!-- distinct(df1,CUS_NO,CUS_AGE,세대구분,조직) %>% group_by(CUS_AGE,세대구분,조직) %>% summarise(n=n()) %>%  -->
-<!--   ggplot(aes(x=CUS_AGE, y=n,group =조직, fill = 조직))+ -->
-<!--   geom_col(position = 'dodge')+ -->
-<!--   labs(x='고객연령', y='고객수')+ -->
-<!--   scale_x_continuous(breaks = c(20,30,40,50,65,70,80),limits = c(18,100))+ -->
-<!--   scale_y_continuous(labels = comma,)+ -->
-<!--   ggtitle(label = '조직별 연령 분포')+ -->
-<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
-<!--   theme_light(base_family = 'Nanum Gothic')+ -->
-<!--   theme(legend.position = 'top' -->
-<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
-<!--         ) -->
-
-<!-- ##연령분포 ((세대구분)) -->
-<!-- distinct(df1,CUS_NO,CUS_AGE,세대구분) %>% group_by(CUS_AGE,세대구분) %>% summarise(n=n()) %>%  -->
-<!--   ggplot(aes(x=CUS_AGE, y=n,group =조직, fill = 조직))+ -->
-<!--   geom_col(position = 'dodge')+ -->
-<!--   labs(x='고객연령', y='고객수')+ -->
-<!--   scale_x_continuous(breaks = c(20,30,40,50,65,70,80),limits = c(18,100))+ -->
-<!--   scale_y_continuous(labels = comma,)+ -->
-<!--   ggtitle(label = '세대별 연령 분포')+ -->
-<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
-<!--   theme_light(base_family = 'Nanum Gothic')+ -->
-<!--   theme(legend.position = 'top' -->
-<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
-<!--         ) -->
 
 
-<!-- ``` -->
-
-<!-- ### 조직별 평잔 분포 -->
-
-<!-- ```{r} -->
-
-<!-- ##잔고분포(조직구분) -->
-<!-- ##0원이상 잔고보유만 -->
-<!-- set.seed(123) -->
-<!-- distinct(df1, CUS_NO, 조직,세대구분,평잔) %>%  -->
-<!--   group_by(CUS_NO, 조직,세대구분) %>%  -->
-<!--   summarise(평잔 = sum(평잔)) %>%  -->
-<!--   filter(평잔 > 0) %>%  -->
-<!--   mutate(평잔 = log1p(평잔) ) %>%  -->
-<!--   ungroup() %>%  -->
-<!--   slice_sample(prop = 0.3) %>% -->
-<!--   ggplot(aes(x=평잔, y= 세대구분, fill=조직))+ -->
-<!--   geom_density_ridges(alpha=0.5)+ -->
-
-<!--   labs(x='평잔', y='')+ -->
-<!--   ggtitle(label = '조직별 평잔 분포(20년12월 ~ 21년 3월의 3개월 평잔)')+ -->
-<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
-<!--   theme_light(base_family = 'Nanum Gothic')+ -->
-<!--   theme(legend.position = 'top' -->
-<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
-<!--   ) -->
-
-<!-- ``` -->
-
-<!-- ### 조직별 기여수익 분포 -->
-
-<!--   |조직|   세대구분| 고객수| 기여수익|조직|   세대구분| 고객수| 기여수익| -->
-<!--   |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:| -->
-<!-- |WM   |  2039   |  140779  |   594 | 디지털 | 2039   |  548673 |    548| -->
-<!-- |WM   |  4064   |  343927  |  4730 | 디지털 | 4064   |  464989  |  1721| -->
-<!-- |WM   |  65이상 |   71491  |  1310 | 디지털 | 65이상 | 20379   |  105| -->
-
-
-
-
-<!-- ```{r} -->
-
-<!-- ##기여수익분포(조직구분) -->
-<!-- ##0원이상 기여수익만 -->
-<!-- distinct(df1, CUS_NO, 조직,세대구분,주식기여수익, 주식외기여수익) %>%  -->
-<!--   group_by(CUS_NO, 조직,세대구분) %>%  -->
-<!--   summarise(기여수익 = sum(주식기여수익+주식외기여수익) ) %>%  -->
-<!--   filter(기여수익 > 0) %>%  -->
-<!--   mutate(기여수익 = log1p(기여수익) ) %>%  -->
-<!--   ungroup() %>%  -->
-<!--   slice_sample(prop = 0.3) %>% -->
-<!--   ggplot(aes(x=기여수익, y= 세대구분, fill=조직))+ -->
-<!--   geom_density_ridges(alpha=0.5)+ -->
-
-<!--   labs(x='기여수익', y='')+ -->
-<!--   ggtitle(label = '조직별 기여수익 분포(20년01월 ~ 21년 2월의 수익)')+ -->
-<!--   # theme_ipsum(base_family = 'Nanum Gothic', base_size = 14)+ -->
-<!--   theme_light(base_family = 'Nanum Gothic')+ -->
-<!--   theme(legend.position = 'top' -->
-<!--         , text = element_text(family = 'Nanum Gothic', size = 14) -->
-<!--   ) -->
-
-<!-- ``` -->
-
-
-<!-- ### 세대별 수익률 -->
-
-
-<!-- ```{r} -->
-
-<!-- ##수익률분포 -->
-<!-- ## 주거래계좌 추가 -->
-<!-- foo <- df2 %>% select(CUS_NO, 투자손익,수익율,주구분,주조직,연령,세대구분)  -->
-<!-- ##1사분위, 3사분위 -->
-<!-- foo <- foo %>% filter(수익율 >= quantile(foo$수익율, 0.25) & 수익율 < quantile(foo$수익율, 0.75)) -->
-
-<!-- ##수익률분포 -->
-<!-- foo %>% ggplot(aes(x=수익율,y=세대구분,fill=주조직))+ -->
-<!--   geom_density_ridges(alpha=0.5)+ -->
-<!--   labs(x='수익률',y='세대구분')+ -->
-<!--   ggtitle(label = '세대별 구간 수익률(20년1월 ~ 21년2월)')+ -->
-<!--   theme_light()+ -->
-<!--   theme(text = element_text(size = 14, family = 'Nanum Gothic'))+ -->
-<!--   facet_zoom(xlim = c(-1,1),zoom.size = 1) -->
-
-<!-- ``` -->
-
-<!-- ### 수익률 분포 연령별 -->
-
-<!-- ```{r} -->
-
-<!-- ##수익률분포 -->
-<!-- ## 주거래계좌 추가 -->
-<!-- foo <- df2 %>% select(CUS_NO, 투자손익,수익율,주구분,주조직,연령,세대구분)  -->
-<!-- ##1사분위, 3사분위 -->
-<!-- foo <- foo %>% filter(수익율 >= quantile(foo$수익율, 0.25) & 수익율 < quantile(foo$수익율, 0.75)) -->
-
-<!-- ##수익률분포 연령별 -->
-<!-- foo %>% group_by(연령,주조직,세대구분) %>% summarise(평균 = mean(수익율)) %>%  -->
-<!--   ggplot(aes(x=연령, y=평균,fill=주조직))+ -->
-<!--   geom_col(position = 'dodge')+ -->
-<!--   scale_x_continuous(limits = c(18,100))+ -->
-<!--   scale_y_continuous(limits = c(-0.08, 2.5))+ -->
-<!--   ggtitle(label = '연령별 수익률 평균')+ -->
-<!--   annotate(geom = 'rect',xmin = 20,xmax = 39,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
-<!--   annotate(geom = 'text',x = 30, y=2, label = '2039', size = 3)+ -->
-<!--   annotate(geom = 'rect',xmin = 40,xmax = 64,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
-<!--   annotate(geom = 'text',x = 53, y=2, label = '4064', size = 3)+ -->
-<!--   annotate(geom = 'rect',xmin = 65,xmax = 100,ymin = 0,ymax = 2.5, alpha = 0.2)+ -->
-<!--   annotate(geom = 'text',x = 80, y=2, label = '65이상', size = 3)+ -->
-<!--   theme_light()+ -->
-<!--   theme(text = element_text(size = 14, family = 'Nanum Gothic')) -->
-
-<!-- ``` -->
-
-
-<!-- ### 세대별 약정 분포 -->
-
-<!-- ```{r} -->
-
-<!-- ##세대별 약정, 수익분포 -->
-<!-- foo <- df1 %>%  -->
-<!--   group_by(CUS_NO,주조직,세대구분) %>%  -->
-<!--   summarise(평잔 = sum(평잔) -->
-<!--             , 수익 = sum(주식기여수익+주식외기여수익) -->
-<!--             , 주식수익 = sum(주식기여수익) -->
-<!--             , 주식외수익 = sum(주식외기여수익)) %>% filter(수익 > 0) %>% ungroup() -->
-
-<!-- ## 수익 구성 -->
-<!-- ## 디지털은 발생수익이 낮은데, 도움이 없어서 그런거 아닌가 -->
-<!-- foo[-4] %>%  -->
-<!--   # slice_sample(.,prop=0.3) %>%  -->
-<!--   gather(key = key, value = value,-CUS_NO,-주조직,-세대구분) %>%  -->
-<!--   ggplot(aes(x=세대구분, y=value/100000000, fill=key))+ -->
-<!--   geom_col()+ -->
-<!--   labs(y='발생수익(억)')+ -->
-<!--   ggtitle(label = '세대별 발생수익 (20년1월 ~ 21년2월 합산)') + -->
-<!--   theme_light()+ -->
-<!--   theme(legend.position ='')+ -->
-<!--   facet_wrap(~주조직) -->
-
-<!-- ``` -->
